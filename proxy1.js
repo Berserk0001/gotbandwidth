@@ -154,11 +154,11 @@ async function hhproxy(req, res) {
       req.params.originSize = originResponse.headers["content-length"] || "0";
 
       // Handle streaming response
-      originResponse.body.on('error', () => req.socket.destroy());
+      originResponse.on('error', () => req.socket.destroy());
 
       if (shouldCompress(req)) {
         // Compress and pipe response if required
-        return compress(req, res, originResponse.body);
+        return compress(req, res, originResponse);
       } else {
         // Bypass compression
         res.setHeader("x-proxy-bypass", 1);
@@ -168,7 +168,7 @@ async function hhproxy(req, res) {
           if (headerName in originResponse.headers) res.setHeader(headerName, originResponse.headers[headerName]);
         }
 
-        return originResponse.body.pipe(res);
+        return originResponse.pipe(res);
       }
     });
   } catch (err) {
