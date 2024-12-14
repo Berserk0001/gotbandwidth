@@ -1,5 +1,5 @@
 "use strict";
-import { request } from 'undici';
+import got from 'got';
 import sharp from "sharp";
 import pick from "./pick.js";
 import UserAgent from 'user-agents';
@@ -140,12 +140,15 @@ async function hhproxy(req, res) {
       Via: "1.1 bandwidth-hero"
     },
     method: 'GET',
-    rejectUnauthorized: false,
+    https: {
+      rejectUnauthorized: false
+    },
+    followRedirect: false,
     maxRedirects: 4
   };
 
   try {
-    let origin = await request(req.params.url, options);
+    const origin = await got.stream(req.params.url, options);
     _onRequestResponse(origin, req, res);
   } catch (err) {
     _onRequestError(req, res, err);
@@ -153,7 +156,7 @@ async function hhproxy(req, res) {
 }
 
 function _onRequestError(req, res, err) {
-  if (err.code === "ERR_INVALID_URL") {
+  if (err.code === "ENOTFOUND" || err.code === "ERR_INVALID_URL") {
     res.statusCode = 400;
     return res.end("Invalid URL");
   }
@@ -182,10 +185,10 @@ function _onRequestResponse(origin, req, res) {
   req.params.originType = origin.headers["content-type"] || "";
   req.params.originSize = parseInt(origin.headers["content-length"] || "0", 10);
 
-  origin.body.on('error', _ => req.socket.destroy());
+  origin.on('error', _ => req.socket.destroy());
 
   if (shouldCompress(req)) {
-    return compress(req, res, origin.body);
+    return compress(req, res, origin);
   } else {
     res.setHeader("X-Proxy-Bypass", 1);
 
@@ -195,7 +198,7 @@ function _onRequestResponse(origin, req, res) {
       }
     });
 
-    return origin.body.pipe(res);
+    return origin.pipe(res);
   }
 }
 
