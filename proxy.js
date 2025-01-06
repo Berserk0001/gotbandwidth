@@ -1,5 +1,5 @@
-import sharp from "sharp";
-import got from "got";
+import got from 'got';
+import sharp from 'sharp';
 
 // Constants
 const DEFAULT_QUALITY = 80;
@@ -18,9 +18,7 @@ function shouldCompress(originType, originSize, isWebp) {
 // Function to compress an image
 async function compress(input, format, quality, grayscale) {
   const imagePipeline = sharp({ unlimited: true, animated: false });
-
   const sharpInstance = input.pipe(imagePipeline);
-
   const metadata = await sharpInstance.metadata();
 
   if (metadata.height > MAX_HEIGHT) {
@@ -31,7 +29,6 @@ async function compress(input, format, quality, grayscale) {
     sharpInstance.grayscale();
   }
 
-  // Process the image and capture info
   const outputBuffer = await sharpInstance
     .toFormat(format, { quality })
     .toBuffer({ resolveWithObject: true });
@@ -52,27 +49,27 @@ export async function handleRequest(req, res) {
   }
 
   try {
-    const response = await got.stream(imageUrl);
+    const { body, headers } = await got(imageUrl, { responseType: 'buffer' });
 
-    const originType = response.headers["content-type"];
-    const originSize = parseInt(response.headers["content-length"], 10) || 0;
+    const originType = headers['content-type'];
+    const originSize = parseInt(headers['content-length'], 10) || 0;
 
     if (shouldCompress(originType, originSize, isWebp)) {
-      const { data: processedData, info } = await compress(response, format, quality, grayscale);
+      const { data: compressedData, info } = await compress(body, format, quality, grayscale);
 
-      res.setHeader("Content-Type", `image/${format}`);
-      res.setHeader("Content-Length", processedData.length);
-      res.setHeader("X-Original-Size", originSize);
-      res.setHeader("X-Bytes-Saved", originSize - processedData.length);
-      res.setHeader("X-Processed-Size", info.size);
-      res.send(processedData);
+      res.setHeader('Content-Type', `image/${format}`);
+      res.setHeader('Content-Length', compressedData.length);
+      res.setHeader('X-Original-Size', originSize);
+      res.setHeader('X-Bytes-Saved', originSize - compressedData.length);
+      res.setHeader('X-Processed-Size', info.size);
+      res.send(compressedData);
     } else {
-      res.setHeader("Content-Type", originType);
-      res.setHeader("Content-Length", originSize);
-      response.pipe(res);
+      res.setHeader('Content-Type', originType);
+      res.setHeader('Content-Length', originSize);
+      res.send(body);
     }
   } catch (error) {
-    console.error("Error handling image request:", error.message);
+    console.error("Error fetching image:", error.message);
     res.status(500).send("Internal server error.");
   }
 }
