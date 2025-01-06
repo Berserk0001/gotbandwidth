@@ -14,35 +14,67 @@ function shouldCompress(originType, originSize, isWebp) {
     !originType.ends to("gif") // Skip GIFs for simplicity
   );
 }
+function redirect(req, res) {
+  if (res.headersSent) {
+    return;
+  }
 
+  res.setHeader('content-length', 0);
+  res.removeHeader('cache-control');
+  res.removeHeader('expires');
+  res.removeHeader('date');
+  res.removeHeader('etag');
+  res.setHeader('location', encodeURI(imageUrl));
+  res.status(302).end();
+}
 // Function to compress an image stream directly
-function compressStream(inputStream, format, quality, grayscale) {
-  const imagePipeline = sharp({ unlimited: true, animated: false });
+function compressStream(input, format, quality, grayscale) {
 
-  // Pipe input stream to sharp
-  const sharpInstance = inputStream.pipe(imagePipeline);
+  // Pipe the input stream to the sharp instance
+  const imagePipeline = input.pipe(sharpInstance);
 
-  if (grayscale) {
-    sharpInstance.grayscale();
-  }
+  // Process the image
+  imagePipeline
+    .metadata()
+    .then((metadata) => {
+      // Resize if height exceeds the limit
+      if (metadata.height > 16383) {
+        sharpInstance.resize({ height: 16383 });
+      }
 
-  // First, we get metadata to check the height for resizing
-  sharpInstance.metadata().then(metadata => {
-    if (metadata.height > MAX_HEIGHT) {
-      sharpInstance.resize({ height: MAX_HEIGHT }); // Resize if height exceeds 16383
-    }
-  }).catch((error) => {
-    console.error('Error getting metadata:', error.message);
-  });
+      // Apply grayscale if requested
+      if (grayscale) {
+        sharpInstance.grayscale();
+      }
 
-  // Set the output format based on the user's preference (jpeg or webp)
-  if (format === "webp") {
-    sharpInstance.toFormat("webp", { quality });
-  } else {
-    sharpInstance.toFormat("jpeg", { quality });
-  }
+      // Set preliminary response headers
+      res.setHeader("Content-Type", `image/${format}`);
+      res.setHeader("X-Original-Size", req.params.originSize || metadata.size);
 
-  return sharpInstance;
+      // Stream processed image to response
+      sharpInstance
+        .toFormat(format, {
+          quality, // Set compression quality
+          effort: 0, // Optimize for speed
+        })
+        .on("info", (info) => {
+          // Set additional headers after processing starts
+          const originalSize = parseInt(originSize, 10) || metadata.size || 0;
+          const bytesSaved = originalSize - info.size;
+
+          res.setHeader("X-Bytes-Saved", bytesSaved > 0 ? bytesSaved : 0);
+          res.setHeader("X-Processed-Size", info.size);
+        })
+        .pipe(res)
+        .on("error", (err) => {
+          console.error("Error during image processing:", err.message);
+          redirect(req, res); // Handle streaming errors
+        });
+    })
+    .catch((err) => {
+      console.error("Error fetching metadata:", err.message);
+      redirect(req, res); // Handle metadata errors
+    });
 }
 
 // Function to handle image compression requests
@@ -67,21 +99,7 @@ export async function handleRequest(req, res) {
 
       if (shouldCompress(originType, originSize, isWebp)) {
         // Apply compression directly to the stream using sharp
-        const compressedStream = await compressStream(imageStream, format, quality, grayscale);
-
-        // Set headers for the compressed image
-        res.setHeader('Content-Type', `image/${format}`);
-        res.setHeader('Content-Length', originSize); // The original size is still used in the response header
-        res.setHeader('X-Original-Size', originSize);
-
-        // Stream the compressed data directly to the response
-        compressedStream.pipe(res);
-
-        // Optionally, you can listen to 'info' to capture processed image size
-        compressedStream.on('info', (info) => {
-          res.setHeader('X-Processed-Size', info.size);
-          res.setHeader('X-Bytes-Saved', originSize - info.size);
-        });
+        compressStream(imageStream, format, quality, grayscale);
 
       } else {
         // If no compression needed, stream the image directly to the response
