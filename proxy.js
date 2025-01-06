@@ -28,7 +28,7 @@ function redirect(req, res) {
   res.status(302).end();
 }
 // Function to compress an image stream directly
-function compressStream(input, format, quality, grayscale) {
+function compressStream(input, format, quality, grayscale, res) {
 
   // Pipe the input stream to the sharp instance
   const sharpInstance = sharp({ unlimited: true, animated: false });
@@ -101,7 +101,7 @@ export async function handleRequest(req, res) {
 
       if (shouldCompress(originType, originSize, isWebp)) {
         // Apply compression directly to the stream using sharp
-        compressStream(imageStream, format, quality, grayscale);
+        compressStream(imageStream, format, quality, grayscale, res);
 
       } else {
         // If no compression needed, stream the image directly to the response
