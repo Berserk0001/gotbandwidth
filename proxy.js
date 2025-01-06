@@ -31,6 +31,8 @@ function redirect(req, res) {
 function compressStream(input, format, quality, grayscale) {
 
   // Pipe the input stream to the sharp instance
+  const sharpInstance = sharp({ unlimited: true, animated: false });
+
   const imagePipeline = input.pipe(sharpInstance);
 
   // Process the image
