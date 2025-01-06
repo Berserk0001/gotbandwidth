@@ -1,9 +1,9 @@
-import got from 'got';
-import sharp from 'sharp';
+import sharp from "sharp";
+import got from "got";
 
 // Constants
 const DEFAULT_QUALITY = 80;
-const MAX_HEIGHT = 16383; // Resize if height exceeds this value
+const MAX_HEIGHT = 16383;
 
 // Utility function to determine if compression is needed
 function shouldCompress(originType, originSize, isWebp) {
@@ -14,34 +14,42 @@ function shouldCompress(originType, originSize, isWebp) {
     !originType.endsWith("gif") // Skip GIFs for simplicity
   );
 }
-// Function to compress an image stream directly
-function compressStream(inputStream, format, quality, grayscale) {
-  const imagePipeline = sharp({ unlimited: true, animated: false });
 
-  // Pipe input stream to sharp
-  const sharpInstance = inputStream.pipe(imagePipeline);
+// Function to compress an image and pipe it to the response
+function compressAndPipe(input, res, format, quality, grayscale) {
+  const sharpInstance = sharp({ unlimited: true, animated: false });
 
-  if (grayscale) {
-    sharpInstance.grayscale();
-  }
+  input.pipe(sharpInstance);
 
-  // First, we get metadata to check the height for resizing
-  sharpInstance.metadata().then(metadata => {
-    if (metadata.height > MAX_HEIGHT) {
-      sharpInstance.resize({ height: MAX_HEIGHT }); // Resize if height exceeds 16383
-    }
-  }).catch((error) => {
-    console.error('Error getting metadata:', error.message);
-  });
+  sharpInstance
+    .metadata()
+    .then((metadata) => {
+      if (metadata.height > MAX_HEIGHT) {
+        sharpInstance.resize({ height: MAX_HEIGHT });
+      }
 
-  // Set the output format based on the user's preference (jpeg or webp)
-  if (format === "webp") {
-    sharpInstance.toFormat("webp", { quality });
-  } else {
-    sharpInstance.toFormat("jpeg", { quality });
-  }
+      if (grayscale) {
+        sharpInstance.grayscale();
+      }
 
-  return sharpInstance;
+      res.setHeader("Content-Type", `image/${format}`);
+
+      sharpInstance
+        .toFormat(format, { quality })
+        .on("info", (info) => {
+          res.setHeader("Content-Length", info.size);
+          res.setHeader("X-Processed-Size", info.size);
+        })
+        .pipe(res)
+        .on("error", (err) => {
+          console.error("Error during image processing:", err.message);
+          res.status(500).send("Internal server error.");
+        });
+    })
+    .catch((err) => {
+      console.error("Error fetching metadata:", err.message);
+      res.status(500).send("Internal server error.");
+    });
 }
 
 // Function to handle image compression requests
@@ -57,50 +65,27 @@ export async function handleRequest(req, res) {
   }
 
   try {
-    const imageStream = got.stream(imageUrl);
+    const stream = got.stream(imageUrl);
 
-    // Listen for the response event to check the headers
-    imageStream.on('response', (response) => {
-      const originType = response.headers['content-type'];
-      const originSize = parseInt(response.headers['content-length'], 10) || 0;
+    stream.on('response', (response) => {
+      const originType = response.headers["content-type"];
+      const originSize = parseInt(response.headers["content-length"], 10) || 0;
+
+      res.setHeader("X-Original-Size", originSize);
 
       if (shouldCompress(originType, originSize, isWebp)) {
-        // Apply compression directly to the stream using sharp
-        const compressedStream = compressStream(imageStream, format, quality, grayscale);
-
-        // Set headers for the compressed image
-        res.setHeader('Content-Type', `image/${format}`);
-        res.setHeader('Content-Length', originSize); // The original size is still used in the response header
-        res.setHeader('X-Original-Size', originSize);
-
-        // Stream the compressed data directly to the response
-        compressedStream.pipe(res);
-
-        // Optionally, you can listen to 'info' to capture processed image size
-        compressedStream.on('info', (info) => {
-          res.setHeader('X-Processed-Size', info.size);
-          res.setHeader('X-Bytes-Saved', originSize - info.size);
-        });
-
+        compressAndPipe(stream, res, format, quality, grayscale);
       } else {
-        // If no compression needed, stream the image directly to the response
-        res.setHeader('Content-Type', originType);
-        res.setHeader('Content-Length', originSize);
-        imageStream.pipe(res);
+        res.setHeader("Content-Type", originType);
+        res.setHeader("Content-Length", originSize);
+        stream.pipe(res);
       }
     });
 
-    // Handle stream errors
-    imageStream.on('error', (error) => {
+    stream.on('error', (error) => {
       console.error("Error fetching image:", error.message);
-      res.status(500).send("Failed to fetch the image.");
+      res.status(500).send("Internal server error.");
     });
-
-    // Handle the end event
-    imageStream.on('end', () => {
-      console.log('Image stream ended.');
-    });
-
   } catch (error) {
     console.error("Error handling image request:", error.message);
     res.status(500).send("Internal server error.");
