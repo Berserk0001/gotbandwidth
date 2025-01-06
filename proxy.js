@@ -31,8 +31,15 @@ function compress(req, res, inputStream) {
   const format = req.params.webp ? "webp" : "jpeg";
   const sharpInstance = sharp({ unlimited: true, animated: false });
 
-  inputStream.pipe(sharpInstance);
+  inputStream
+    .pipe(sharpInstance) // Pipe input stream to sharp instance
+    .on('error', (err) => {
+      console.error('Error during image processing:', err.message);
+      res.statusCode = 500;
+      res.end('Failed to process image.');
+    });
 
+  // Handle the metadata to perform necessary transformations
   sharpInstance
     .metadata()
     .then((metadata) => {
@@ -44,20 +51,24 @@ function compress(req, res, inputStream) {
         sharpInstance.grayscale();
       }
 
-      return sharpInstance
+      // Stream the processed image directly to the response
+      sharpInstance
         .toFormat(format, { quality: req.params.quality })
-        .toBuffer();
-    })
-    .then((buffer) => {
-      res.setHeader("Content-Type", `image/${format}`);
-      res.setHeader("Content-Length", buffer.length);
-      res.statusCode = 200;
-      res.end(buffer);
+        .pipe(res) // Pipe the processed image to the response stream
+        .on('finish', () => {
+          // Optionally, log success or handle post-pipe actions
+          console.log('Image processing complete and sent to client.');
+        })
+        .on('error', (err) => {
+          console.error('Error while streaming the image:', err.message);
+          res.statusCode = 500;
+          res.end('Failed to stream the image.');
+        });
     })
     .catch((err) => {
-      console.error("Compression error:", err.message);
+      console.error('Error fetching metadata:', err.message);
       res.statusCode = 500;
-      res.end("Failed to compress image.");
+      res.end('Failed to fetch image metadata.');
     });
 }
 
