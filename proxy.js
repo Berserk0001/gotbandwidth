@@ -1,4 +1,4 @@
-import axios from "axios";
+
 import sharp from "sharp";
 
 // Constants
@@ -78,13 +78,15 @@ function handleRequest(req, res, origin) {
   }
 }
 
-// Function to fetch the image and process it
+import got from "got";
+
 export function fetchImageAndHandle(req, res) {
-  const url = req.query.url;
+  const url = req.query.url; // Extract URL from query
   if (!url) {
     return res.send("bandwidth-hero-proxy");
   }
 
+  // Set request parameters
   req.params = {
     url: decodeURIComponent(url),
     webp: !req.query.jpeg,
@@ -92,25 +94,33 @@ export function fetchImageAndHandle(req, res) {
     quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY,
   };
 
-  axios({
-    method: "get",
-    url: req.params.url,
-    responseType: "stream",
-  })
-    .then((response) => {
-      req.params.originType = response.headers["content-type"];
-      req.params.originSize = parseInt(response.headers["content-length"], 10) || 0;
+  // Use got.stream to fetch the image as a stream
+  const stream = got.stream(req.params.url);
 
-      const origin = {
-        headers: response.headers,
-        data: response.data,
-      };
+  // Handle response metadata
+  stream.on("response", (response) => {
+    if (response.statusCode >= 400) {
+      res.statusCode = response.statusCode;
+      return res.end("Failed to fetch the image.");
+    }
 
-      handleRequest(req, res, origin);
-    })
-    .catch((error) => {
-      console.error("Error fetching image:", error.message);
-      res.statusCode = 500;
-      res.end("Failed to fetch the image.");
-    });
+    // Extract headers and set request parameters
+    req.params.originType = response.headers["content-type"];
+    req.params.originSize = parseInt(response.headers["content-length"], 10) || 0;
+
+    const origin = {
+      headers: response.headers,
+      data: stream, // Pass the stream directly
+    };
+
+    // Process the request (e.g., compression or bypass)
+    handleRequest(req, res, origin);
+  });
+
+  // Handle errors during the stream
+  stream.on("error", (err) => {
+    console.error("Error fetching image:", err.message);
+    res.statusCode = 500;
+    res.end("Failed to fetch the image.");
+  });
 }
