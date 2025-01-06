@@ -67,7 +67,7 @@ export async function handleRequest(req, res) {
 
       if (shouldCompress(originType, originSize, isWebp)) {
         // Apply compression directly to the stream using sharp
-        const compressedStream = compressStream(imageStream, format, quality, grayscale);
+        const compressedStream = await compressStream(imageStream, format, quality, grayscale);
 
         // Set headers for the compressed image
         res.setHeader('Content-Type', `image/${format}`);
