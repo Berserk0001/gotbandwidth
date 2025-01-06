@@ -14,7 +14,7 @@ function shouldCompress(originType, originSize, isWebp) {
     !originType.endsWith("gif") // Skip GIFs for simplicity
   );
 }
-function redirect(req, res) {
+function redirect(res) {
   if (res.headersSent) {
     return;
   }
@@ -70,12 +70,12 @@ function compressStream(input, format, quality, grayscale, res) {
         .pipe(res)
         .on("error", (err) => {
           console.error("Error during image processing:", err.message);
-          redirect(req, res); // Handle streaming errors
+          redirect(res); // Handle streaming errors
         });
     })
     .catch((err) => {
       console.error("Error fetching metadata:", err.message);
-      redirect(req, res); // Handle metadata errors
+      redirect(res); // Handle metadata errors
     });
 }
 
