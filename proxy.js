@@ -11,7 +11,7 @@ function shouldCompress(originType, originSize, isWebp) {
   return (
     originType.startsWith("image") &&
     originSize >= MIN_COMPRESS_LENGTH &&
-    !originType.ends to("gif") // Skip GIFs for simplicity
+    !originType.endsWith("gif") // Skip GIFs for simplicity
   );
 }
 function redirect(req, res) {
